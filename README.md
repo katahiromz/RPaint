@@ -103,4 +103,4 @@ Tested on RosBE, Visual Studio 2015, and Visual Studio 2019.
 
 ## License
 
-- LGPL 2.1 and later
+- LGPL 2.0 and later
