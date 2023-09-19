@@ -92,7 +92,7 @@ It's a free and open source software for Windows XP and later.
 Please use ReactOS Build Environment (RosBE).
 
 ```bash
-git clone https://github.com/katahiromz/RPaint
+git clone --recursive https://github.com/katahiromz/RPaint
 cd RPaint
 cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .
 ninja
