@@ -77,6 +77,7 @@ void CMainWindow::alignChildrenToMainWindow()
     RECT clientRect, rc;
     GetClientRect(&clientRect);
     RECT rcSpace = clientRect;
+    const UINT uFlags = (SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION | SWP_NOCOPYBITS);
 
     if (::IsWindowVisible(g_hStatusBar))
     {
@@ -93,7 +94,7 @@ void CMainWindow::alignChildrenToMainWindow()
             hDWP = ::DeferWindowPos(hDWP, toolBoxContainer, NULL,
                                     rcSpace.right - CX_TOOLBAR, rcSpace.top,
                                     CX_TOOLBAR, rcSpace.bottom - rcSpace.top,
-                                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION);
+                                    uFlags);
             rcSpace.right -= CX_TOOLBAR;
         }
         else
@@ -101,7 +102,7 @@ void CMainWindow::alignChildrenToMainWindow()
             hDWP = ::DeferWindowPos(hDWP, toolBoxContainer, NULL,
                                     rcSpace.left, rcSpace.top,
                                     CX_TOOLBAR, rcSpace.bottom - rcSpace.top,
-                                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION);
+                                    uFlags);
             rcSpace.left += CX_TOOLBAR;
         }
     }
@@ -113,7 +114,7 @@ void CMainWindow::alignChildrenToMainWindow()
             hDWP = ::DeferWindowPos(hDWP, paletteWindow, NULL,
                                     rcSpace.left, rcSpace.bottom - CY_PALETTE,
                                     rcSpace.right - rcSpace.left, CY_PALETTE,
-                                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION);
+                                    uFlags);
             rcSpace.bottom -= CY_PALETTE;
         }
         else
@@ -121,7 +122,7 @@ void CMainWindow::alignChildrenToMainWindow()
             hDWP = ::DeferWindowPos(hDWP, paletteWindow, NULL,
                                     rcSpace.left, rcSpace.top,
                                     rcSpace.right - rcSpace.left, CY_PALETTE,
-                                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION);
+                                    uFlags);
             rcSpace.top += CY_PALETTE;
         }
     }
@@ -131,7 +132,7 @@ void CMainWindow::alignChildrenToMainWindow()
         hDWP = ::DeferWindowPos(hDWP, canvasWindow, NULL,
                                 rcSpace.left, rcSpace.top,
                                 rcSpace.right - rcSpace.left, rcSpace.bottom - rcSpace.top,
-                                SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREPOSITION);
+                                uFlags);
     }
 
     ::EndDeferWindowPos(hDWP);
@@ -740,13 +741,13 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
             selectionModel.TakeOff();
 
             {
-                HBITMAP hbm = selectionModel.CopyBitmap();
-                if (hbm)
+                HBITMAP hbmLocked = selectionModel.LockBitmap();
+                if (hbmLocked)
                 {
-                    HGLOBAL hGlobal = BitmapToClipboardDIB(hbm);
+                    HGLOBAL hGlobal = BitmapToClipboardDIB(hbmLocked);
                     if (hGlobal)
                         ::SetClipboardData(CF_DIB, hGlobal);
-                    ::DeleteObject(hbm);
+                    selectionModel.UnlockBitmap(hbmLocked);
                 }
             }
 
@@ -864,10 +865,9 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
             WCHAR szFileName[MAX_LONG_PATH] = L"*.png";
             if (GetSaveFileName(szFileName, _countof(szFileName)))
             {
-                HBITMAP hbm = selectionModel.CopyBitmap();
-                if (!SaveDIBToFile(hbm, szFileName, FALSE))
-                    ShowError(IDS_SAVEERROR, szFileName);
-                ::DeleteObject(hbm);
+                HBITMAP hbmLocked = selectionModel.LockBitmap();
+                SaveDIBToFile(hbmLocked, szFileName, FALSE);
+                selectionModel.UnlockBitmap(hbmLocked);
             }
             break;
         }
@@ -879,8 +879,6 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
                 HBITMAP hbmNew = DoLoadImageFile(m_hWnd, szFileName, FALSE);
                 if (hbmNew)
                     InsertSelectionFromHBITMAP(hbmNew, m_hWnd);
-                else
-                    ShowError(IDS_LOADERRORTEXT, szFileName);
             }
             break;
         }
@@ -1007,7 +1005,6 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
             imageModel.PushImageForUndo(selectionModel.CopyBitmap());
             selectionModel.HideSelection();
             break;
-
         case IDM_VIEWTOOLBOX:
             registrySettings.ShowToolBox = !toolBoxContainer.IsWindowVisible();
             toolBoxContainer.ShowWindow(registrySettings.ShowToolBox ? SW_SHOWNOACTIVATE : SW_HIDE);

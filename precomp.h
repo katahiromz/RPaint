@@ -54,7 +54,11 @@
 #include "globalvar.h"
 
 #ifdef __RPAINT__
-    #define max(a, b) (((a) > (b)) ? (a) : (b))
-    #define min(a, b) (((a) < (b)) ? (a) : (b))
+    #ifndef max
+        #define max(a, b) (((a) > (b)) ? (a) : (b))
+    #endif
+    #ifndef min
+        #define min(a, b) (((a) < (b)) ? (a) : (b))
+    #endif
 #endif
 #endif /* _MSPAINT_H */
