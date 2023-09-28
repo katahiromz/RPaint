@@ -13,9 +13,10 @@ ToolsModel toolsModel;
 
 ToolsModel::ToolsModel()
 {
-    m_lineWidth = 1;
+    m_lineWidth = m_penWidth = 1;
+    m_brushWidth = 4;
     m_shapeStyle = 0;
-    m_brushStyle = 0;
+    m_brushStyle = BrushStyleRound;
     m_oldActiveTool = m_activeTool = TOOL_PEN;
     m_airBrushWidth = 5;
     m_rubberRadius = 4;
@@ -53,6 +54,49 @@ void ToolsModel::SetLineWidth(int nLineWidth)
 {
     m_lineWidth = nLineWidth;
     NotifyToolSettingsChanged();
+    imageModel.NotifyImageChanged();
+}
+
+INT ToolsModel::GetPenWidth() const
+{
+    return m_penWidth;
+}
+
+void ToolsModel::SetPenWidth(INT nPenWidth)
+{
+    m_penWidth = nPenWidth;
+    NotifyToolSettingsChanged();
+    imageModel.NotifyImageChanged();
+}
+
+INT ToolsModel::GetBrushWidth() const
+{
+    return m_brushWidth;
+}
+
+void ToolsModel::SetBrushWidth(INT nBrushWidth)
+{
+    m_brushWidth = nBrushWidth;
+    NotifyToolSettingsChanged();
+    imageModel.NotifyImageChanged();
+}
+
+void ToolsModel::MakeLineThickerOrThinner(BOOL bThinner)
+{
+    INT thickness = GetLineWidth();
+    SetLineWidth(bThinner ? max(1, thickness - 1) : (thickness + 1));
+}
+
+void ToolsModel::MakePenThickerOrThinner(BOOL bThinner)
+{
+    INT thickness = GetPenWidth();
+    SetPenWidth(bThinner ? max(1, thickness - 1) : (thickness + 1));
+}
+
+void ToolsModel::MakeBrushThickerOrThinner(BOOL bThinner)
+{
+    INT thickness = GetBrushWidth();
+    SetBrushWidth(bThinner ? max(1, thickness - 1) : (thickness + 1));
 }
 
 int ToolsModel::GetShapeStyle() const
@@ -66,12 +110,12 @@ void ToolsModel::SetShapeStyle(int nShapeStyle)
     NotifyToolSettingsChanged();
 }
 
-int ToolsModel::GetBrushStyle() const
+BrushStyle ToolsModel::GetBrushStyle() const
 {
     return m_brushStyle;
 }
 
-void ToolsModel::SetBrushStyle(int nBrushStyle)
+void ToolsModel::SetBrushStyle(BrushStyle nBrushStyle)
 {
     m_brushStyle = nBrushStyle;
     NotifyToolSettingsChanged();
@@ -91,23 +135,38 @@ void ToolsModel::SetActiveTool(TOOLTYPE nActiveTool)
 {
     OnFinishDraw();
 
+    selectionModel.Landing();
+
+    m_activeTool = nActiveTool;
+
     switch (m_activeTool)
     {
         case TOOL_FREESEL:
         case TOOL_RECTSEL:
-        case TOOL_RUBBER:
         case TOOL_COLOR:
         case TOOL_ZOOM:
         case TOOL_TEXT:
+            // The active tool is not an actually drawing tool
             break;
 
-        default:
-            m_oldActiveTool = m_activeTool;
+        case TOOL_LINE:
+        case TOOL_BEZIER:
+        case TOOL_RECT:
+        case TOOL_SHAPE:
+        case TOOL_ELLIPSE:
+        case TOOL_FILL:
+        case TOOL_AIRBRUSH:
+        case TOOL_RRECT:
+        case TOOL_RUBBER:
+        case TOOL_BRUSH:
+        case TOOL_PEN:
+            // The active tool is an actually drawing tool. Save it for TOOL_COLOR to restore
+            m_oldActiveTool = nActiveTool;
             break;
     }
 
-    m_activeTool = nActiveTool;
     m_pToolObject = GetOrCreateTool(m_activeTool);
+
     NotifyToolChanged();
 }
 
@@ -189,7 +248,8 @@ void ToolsModel::NotifyZoomChanged()
 void ToolsModel::OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick)
 {
     m_pToolObject->beginEvent();
-    updateStartAndLast(x, y);
+    g_ptStart.x = g_ptEnd.x = x;
+    g_ptStart.y = g_ptEnd.y = y;
     m_pToolObject->OnButtonDown(bLeftButton, x, y, bDoubleClick);
     m_pToolObject->endEvent();
 }
@@ -197,16 +257,22 @@ void ToolsModel::OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClic
 void ToolsModel::OnMouseMove(BOOL bLeftButton, LONG x, LONG y)
 {
     m_pToolObject->beginEvent();
-    m_pToolObject->OnMouseMove(bLeftButton, x, y);
-    updateLast(x, y);
+    if (m_pToolObject->OnMouseMove(bLeftButton, x, y))
+    {
+        g_ptEnd.x = x;
+        g_ptEnd.y = y;
+    }
     m_pToolObject->endEvent();
 }
 
 void ToolsModel::OnButtonUp(BOOL bLeftButton, LONG x, LONG y)
 {
     m_pToolObject->beginEvent();
-    m_pToolObject->OnButtonUp(bLeftButton, x, y);
-    updateLast(x, y);
+    if (m_pToolObject->OnButtonUp(bLeftButton, x, y))
+    {
+        g_ptEnd.x = x;
+        g_ptEnd.y = y;
+    }
     m_pToolObject->endEvent();
 }
 
@@ -247,4 +313,9 @@ void ToolsModel::selectAll()
     OnButtonDown(TRUE, 0, 0, FALSE);
     OnMouseMove(TRUE, imageModel.GetWidth(), imageModel.GetHeight());
     OnButtonUp(TRUE, imageModel.GetWidth(), imageModel.GetHeight());
+}
+
+void ToolsModel::SpecialTweak(BOOL bMinus)
+{
+    m_pToolObject->OnSpecialTweak(bMinus);
 }

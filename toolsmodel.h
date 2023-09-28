@@ -28,6 +28,14 @@ enum TOOLTYPE
     TOOL_MAX = TOOL_RRECT,
 };
 
+enum BrushStyle
+{
+    BrushStyleRound,
+    BrushStyleSquare,
+    BrushStyleForeSlash,
+    BrushStyleBackSlash,
+};
+
 /* CLASSES **********************************************************/
 
 struct ToolBase
@@ -42,14 +50,16 @@ struct ToolBase
     virtual ~ToolBase() { }
 
     virtual void OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick) { }
-    virtual void OnMouseMove(BOOL bLeftButton, LONG x, LONG y) { }
-    virtual void OnButtonUp(BOOL bLeftButton, LONG x, LONG y) { }
+    virtual BOOL OnMouseMove(BOOL bLeftButton, LONG& x, LONG& y) { return TRUE; }
+    virtual BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) { return TRUE; }
 
     virtual void OnCancelDraw();
     virtual void OnFinishDraw();
 
     virtual void OnDrawOverlayOnImage(HDC hdc) { }
     virtual void OnDrawOverlayOnCanvas(HDC hdc) { }
+
+    virtual void OnSpecialTweak(BOOL bMinus) { }
 
     void beginEvent();
     void endEvent();
@@ -65,8 +75,10 @@ class ToolsModel
 {
 private:
     int m_lineWidth;
+    INT m_penWidth;
+    INT m_brushWidth;
     int m_shapeStyle;
-    int m_brushStyle;
+    BrushStyle m_brushStyle;
     TOOLTYPE m_activeTool;
     TOOLTYPE m_oldActiveTool;
     int m_airBrushWidth;
@@ -83,21 +95,38 @@ public:
     ~ToolsModel();
 
     BOOL IsSelection() const;
+
     int GetLineWidth() const;
     void SetLineWidth(int nLineWidth);
+    void MakeLineThickerOrThinner(BOOL bThinner);
+
+    INT GetPenWidth() const;
+    void SetPenWidth(INT nPenWidth);
+    void MakePenThickerOrThinner(BOOL bThinner);
+
     int GetShapeStyle() const;
     void SetShapeStyle(int nShapeStyle);
-    int GetBrushStyle() const;
-    void SetBrushStyle(int nBrushStyle);
+
+    INT GetBrushWidth() const;
+    void SetBrushWidth(INT nBrushWidth);
+    void MakeBrushThickerOrThinner(BOOL bThinner);
+
+    BrushStyle GetBrushStyle() const;
+    void SetBrushStyle(BrushStyle nBrushStyle);
+
     TOOLTYPE GetActiveTool() const;
     TOOLTYPE GetOldActiveTool() const;
     void SetActiveTool(TOOLTYPE nActiveTool);
+
     int GetAirBrushWidth() const;
     void SetAirBrushWidth(int nAirBrushWidth);
+
     int GetRubberRadius() const;
     void SetRubberRadius(int nRubberRadius);
+
     BOOL IsBackgroundTransparent() const;
     void SetBackgroundTransparent(BOOL bTransparent);
+
     int GetZoom() const;
     void SetZoom(int nZoom);
 
@@ -115,6 +144,8 @@ public:
     void NotifyToolChanged();
     void NotifyToolSettingsChanged();
     void NotifyZoomChanged();
+
+    void SpecialTweak(BOOL bMinus);
 };
 
 extern ToolsModel toolsModel;

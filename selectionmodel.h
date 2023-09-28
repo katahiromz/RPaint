@@ -23,6 +23,7 @@ public:
     CRect m_rc;    // in image pixel coordinates
     POINT m_ptHit; // in image pixel coordinates
     CRect m_rcOld; // in image pixel coordinates
+    INT m_nSelectionBrush = 0;
 
     SelectionModel();
     ~SelectionModel();
@@ -58,9 +59,11 @@ public:
     void InvertSelection();
 
     void Dragging(HITTEST hit, POINT pt);
-    void ClearMask();
-    void ClearColor();
+    void ClearMaskImage();
+    void ClearColorImage();
     void NotifyContentChanged();
+
+    void StretchSelection(BOOL bShrink);
 
 private:
     SelectionModel(const SelectionModel&);

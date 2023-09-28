@@ -704,6 +704,16 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
                 if (toolsModel.IsSelection())
                 {
                     canvasWindow.cancelDrawing();
+                    if (toolsModel.GetActiveTool() == TOOL_FREESEL ||
+                        toolsModel.GetActiveTool() == TOOL_RECTSEL)
+                    {
+                        imageModel.Undo();
+                        if (selectionModel.m_nSelectionBrush == 2) // Selection Brush is drawn
+                        {
+                            imageModel.Undo();
+                            selectionModel.m_nSelectionBrush = 0;
+                        }
+                    }
                     break;
                 }
             }
@@ -1068,6 +1078,13 @@ LRESULT CMainWindow::OnCommand(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
             // Create and show the fullscreen window
             fullscreenWindow.DoCreate();
             fullscreenWindow.ShowWindow(SW_SHOWMAXIMIZED);
+            break;
+
+        case IDM_CTRL_PLUS:
+            toolsModel.SpecialTweak(FALSE);
+            break;
+        case IDM_CTRL_MINUS:
+            toolsModel.SpecialTweak(TRUE);
             break;
     }
     return 0;

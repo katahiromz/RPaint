@@ -21,6 +21,8 @@
 #include <commdlg.h>
 #include <commctrl.h>
 #include <stdlib.h>
+#define _USE_MATH_DEFINES /* for M_PI */
+#include <math.h>
 #include <shellapi.h>
 #include <htmlhelp.h>
 #include "atlimagedx.h"
@@ -61,4 +63,5 @@
         #define min(a, b) (((a) < (b)) ? (a) : (b))
     #endif
 #endif
+
 #endif /* _MSPAINT_H */
