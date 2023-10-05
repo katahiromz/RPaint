@@ -505,6 +505,11 @@ struct RubberTool : SmoothDrawTool
         else
             Replace(m_hdc, g_ptEnd.x, g_ptEnd.y, x, y, m_fg, m_bg, toolsModel.GetRubberRadius());
     }
+
+    void OnSpecialTweak(BOOL bMinus) override
+    {
+        toolsModel.MakeRubberThickerOrThinner(bMinus);
+    }
 };
 
 // TOOL_FILL
@@ -631,6 +636,11 @@ struct AirBrushTool : SmoothDrawTool
         COLORREF rgb = bLeftButton ? m_fg : m_bg;
         Airbrush(m_hdc, x, y, rgb, toolsModel.GetAirBrushWidth());
     }
+
+    void OnSpecialTweak(BOOL bMinus) override
+    {
+        toolsModel.MakeAirBrushThickerOrThinner(bMinus);
+    }
 };
 
 // TOOL_TEXT
@@ -752,7 +762,8 @@ struct TextTool : ToolBase
 
     void OnFinishDraw() override
     {
-        if (textEditWindow.GetWindowTextLength() > 0)
+        if (::IsWindowVisible(textEditWindow) &&
+            textEditWindow.GetWindowTextLength() > 0)
         {
             imageModel.PushImageForUndo();
             draw(m_hdc);
