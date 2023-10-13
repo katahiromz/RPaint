@@ -7,13 +7,6 @@ cmake_minimum_required(VERSION 3.5)
 project(RPaint C CXX RC)
 
 ##############################################################################
-# Debugging
-
-if (DBG)
-    add_definitions(-D_DEBUG=1)
-endif()
-
-##############################################################################
 # Architecture
 
 if (MSVC)
