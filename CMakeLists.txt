@@ -62,8 +62,7 @@ add_executable(mspaint WIN32
     toolsmodel.cpp
     winproc.cpp
     rsrc.rc
-    compat/WinMain.c
-    compat/_CrtSetDbgFlag.c)
+    compat/WinMain.c)
 
 target_compile_definitions(mspaint PRIVATE
     __RPAINT__
