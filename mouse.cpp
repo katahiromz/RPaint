@@ -421,6 +421,7 @@ RestrictDrawDirection(DIRECTION dir, LONG x0, LONG y0, LONG& x1, LONG& y1)
 struct SmoothDrawTool : ToolBase
 {
     DIRECTION m_direction = NO_DIRECTION;
+    BOOL m_bShiftDown = FALSE;
 
     SmoothDrawTool(TOOLTYPE type) : ToolBase(type)
     {
@@ -433,11 +434,12 @@ struct SmoothDrawTool : ToolBase
         m_direction = NO_DIRECTION;
         imageModel.PushImageForUndo();
         imageModel.NotifyImageChanged();
+        m_bShiftDown = (::GetKeyState(VK_SHIFT) & 0x8000); // Is Shift key pressed?
     }
 
     BOOL OnMouseMove(BOOL bLeftButton, LONG& x, LONG& y) override
     {
-        if (::GetKeyState(VK_SHIFT) < 0) // Shift key is pressed
+        if (m_bShiftDown)
         {
             if (m_direction == NO_DIRECTION)
             {
@@ -450,14 +452,10 @@ struct SmoothDrawTool : ToolBase
         }
         else
         {
-            if (m_direction != NO_DIRECTION)
-            {
-                m_direction = NO_DIRECTION;
-                draw(bLeftButton, x, y);
-                g_ptStart.x = g_ptEnd.x = x;
-                g_ptStart.y = g_ptEnd.y = y;
-                return TRUE;
-            }
+            draw(bLeftButton, x, y);
+            g_ptStart.x = g_ptEnd.x = x;
+            g_ptStart.y = g_ptEnd.y = y;
+            return TRUE;
         }
 
         draw(bLeftButton, x, y);
@@ -467,7 +465,7 @@ struct SmoothDrawTool : ToolBase
 
     BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) override
     {
-        if (m_direction != NO_DIRECTION)
+        if (m_bShiftDown && m_direction != NO_DIRECTION)
         {
             RestrictDrawDirection(m_direction, g_ptStart.x, g_ptStart.y, x, y);
         }
@@ -565,39 +563,66 @@ struct ColorTool : ToolBase
 // TOOL_ZOOM
 struct ZoomTool : ToolBase
 {
+    BOOL m_bZoomed = FALSE;
+
     ZoomTool() : ToolBase(TOOL_ZOOM)
     {
     }
 
+    BOOL getNewZoomRect(CRect& rcView, INT newZoom);
+
     void OnDrawOverlayOnCanvas(HDC hdc) override
     {
-        CRect rc;
-        canvasWindow.GetImageRect(rc);
-        canvasWindow.ImageToCanvas(rc);
-
-        POINT pt;
-        ::GetCursorPos(&pt);
-        ::ScreenToClient(canvasWindow, &pt);
-
-        // FIXME: Draw the border of the area that is to be zoomed in
-        if (rc.PtInRect(pt))
-            DrawXorRect(hdc, &rc);
+        CRect rcView;
+        INT oldZoom = toolsModel.GetZoom();
+        if (oldZoom < MAX_ZOOM && getNewZoomRect(rcView, oldZoom * 2))
+            DrawXorRect(hdc, &rcView);
     }
 
     void OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick) override
     {
+        INT newZoom, oldZoom = toolsModel.GetZoom();
         if (bLeftButton)
-        {
-            if (toolsModel.GetZoom() < MAX_ZOOM)
-                zoomTo(toolsModel.GetZoom() * 2, x, y);
-        }
+            newZoom = (oldZoom < MAX_ZOOM) ? (oldZoom * 2) : MIN_ZOOM;
         else
+            newZoom = (oldZoom > MIN_ZOOM) ? (oldZoom / 2) : MAX_ZOOM;
+
+        m_bZoomed = FALSE;
+
+        if (oldZoom != newZoom)
         {
-            if (toolsModel.GetZoom() > MIN_ZOOM)
-                zoomTo(toolsModel.GetZoom() / 2, x, y);
+            CRect rcView;
+            if (getNewZoomRect(rcView, newZoom))
+            {
+                canvasWindow.zoomTo(newZoom, rcView.left, rcView.top);
+                m_bZoomed = TRUE;
+            }
         }
     }
+
+    BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) override
+    {
+        if (m_bZoomed)
+            toolsModel.SetActiveTool(toolsModel.GetOldActiveTool());
+
+        return TRUE;
+    }
 };
+
+BOOL ZoomTool::getNewZoomRect(CRect& rcView, INT newZoom)
+{
+    CPoint pt;
+    ::GetCursorPos(&pt);
+    canvasWindow.ScreenToClient(&pt);
+
+    canvasWindow.getNewZoomRect(rcView, newZoom, pt);
+
+    CRect rc;
+    canvasWindow.GetImageRect(rc);
+    canvasWindow.ImageToCanvas(rc);
+
+    return rc.PtInRect(pt);
+}
 
 // TOOL_PEN
 struct PenTool : SmoothDrawTool

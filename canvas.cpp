@@ -89,31 +89,88 @@ HITTEST CCanvasWindow::CanvasHitTest(POINT pt)
     return getSizeBoxHitTest(pt, &rcBase);
 }
 
+VOID CCanvasWindow::getNewZoomRect(CRect& rcView, INT newZoom, CPoint ptTarget)
+{
+    CRect rcImage;
+    GetImageRect(rcImage);
+    ImageToCanvas(rcImage);
+
+    // Calculate the zoom rectangle
+    INT oldZoom = toolsModel.GetZoom();
+    GetClientRect(rcView);
+    LONG cxView = rcView.right * oldZoom / newZoom, cyView = rcView.bottom * oldZoom / newZoom;
+    ::SetRect(&rcView, ptTarget.x - cxView / 2, ptTarget.y - cyView / 2,
+                       ptTarget.x + cxView / 2, ptTarget.y + cyView / 2);
+
+    // Shift the rectangle if necessary
+    INT dx = 0, dy = 0;
+    if (rcView.left < rcImage.left)
+        dx = rcImage.left - rcView.left;
+    else if (rcImage.right < rcView.right)
+        dx = rcImage.right - rcView.right;
+    if (rcView.top < rcImage.top)
+        dy = rcImage.top - rcView.top;
+    else if (rcImage.bottom < rcView.bottom)
+        dy = rcImage.bottom - rcView.bottom;
+    rcView.OffsetRect(dx, dy);
+
+    rcView.IntersectRect(&rcView, &rcImage);
+}
+
+VOID CCanvasWindow::zoomTo(INT newZoom, LONG left, LONG top)
+{
+    POINT pt = { left, top };
+    CanvasToImage(pt);
+
+    toolsModel.SetZoom(newZoom);
+    ImageToCanvas(pt);
+    pt.x += GetScrollPos(SB_HORZ);
+    pt.y += GetScrollPos(SB_VERT);
+
+    updateScrollRange();
+    updateScrollPos(pt.x, pt.y);
+    Invalidate(TRUE);
+}
+
 VOID CCanvasWindow::DoDraw(HDC hDC, RECT& rcClient, RECT& rcPaint)
 {
+    // This is the target area we have to draw on
+    CRect rcCanvasDraw;
+    rcCanvasDraw.IntersectRect(&rcClient, &rcPaint);
+
     // We use a memory bitmap to reduce flickering
     HDC hdcMem0 = ::CreateCompatibleDC(hDC);
     m_ahbmCached[0] = CachedBufferDIB(m_ahbmCached[0], rcClient.right, rcClient.bottom);
     HGDIOBJ hbm0Old = ::SelectObject(hdcMem0, m_ahbmCached[0]);
 
     // Fill the background on hdcMem0
-    ::FillRect(hdcMem0, &rcPaint, (HBRUSH)(COLOR_APPWORKSPACE + 1));
+    ::FillRect(hdcMem0, &rcCanvasDraw, (HBRUSH)(COLOR_APPWORKSPACE + 1));
 
     // Draw the sizeboxes if necessary
     RECT rcBase = GetBaseRect();
     if (!selectionModel.m_bShow && !::IsWindowVisible(textEditWindow))
-        drawSizeBoxes(hdcMem0, &rcBase, FALSE, &rcPaint);
+        drawSizeBoxes(hdcMem0, &rcBase, FALSE, &rcCanvasDraw);
 
     // Calculate image size
     CRect rcImage;
     GetImageRect(rcImage);
     SIZE sizeImage = { imageModel.GetWidth(), imageModel.GetHeight() };
 
+    // Calculate the target area on the image
+    CRect rcImageDraw = rcCanvasDraw;
+    CanvasToImage(rcImageDraw);
+    rcImageDraw.IntersectRect(&rcImageDraw, &rcImage);
+
+    // Consider rounding down by zooming
+    rcImageDraw.right += 1;
+    rcImageDraw.bottom += 1;
+
     // hdcMem1 <-- imageModel
     HDC hdcMem1 = ::CreateCompatibleDC(hDC);
     m_ahbmCached[1] = CachedBufferDIB(m_ahbmCached[1], sizeImage.cx, sizeImage.cy);
     HGDIOBJ hbm1Old = ::SelectObject(hdcMem1, m_ahbmCached[1]);
-    BitBlt(hdcMem1, 0, 0, sizeImage.cx, sizeImage.cy, imageModel.GetDC(), 0, 0, SRCCOPY);
+    ::BitBlt(hdcMem1, rcImageDraw.left, rcImageDraw.top, rcImageDraw.Width(), rcImageDraw.Height(),
+             imageModel.GetDC(), rcImageDraw.left, rcImageDraw.top, SRCCOPY);
 
     // Draw overlay #1 on hdcMem1
     toolsModel.OnDrawOverlayOnImage(hdcMem1);
@@ -158,17 +215,15 @@ VOID CCanvasWindow::DoDraw(HDC hDC, RECT& rcClient, RECT& rcPaint)
         DrawXorRect(hdcMem0, &m_rcResizing);
 
     // Transfer the bits (hDC <-- hdcMem0)
-    ::BitBlt(hDC,
-             rcPaint.left, rcPaint.top,
-             rcPaint.right - rcPaint.left, rcPaint.bottom - rcPaint.top,
-             hdcMem0, rcPaint.left, rcPaint.top, SRCCOPY);
+    ::BitBlt(hDC, rcCanvasDraw.left, rcCanvasDraw.top, rcCanvasDraw.Width(), rcCanvasDraw.Height(),
+             hdcMem0, rcCanvasDraw.left, rcCanvasDraw.top, SRCCOPY);
 
     // Clean up hdcMem0
     ::SelectObject(hdcMem0, hbm0Old);
     ::DeleteDC(hdcMem0);
 }
 
-VOID CCanvasWindow::updateScrollInfo()
+VOID CCanvasWindow::updateScrollRange()
 {
     CRect rcClient;
     GetClientRect(&rcClient);
@@ -199,16 +254,16 @@ VOID CCanvasWindow::updateScrollInfo()
     SetScrollInfo(SB_VERT, &si);
 }
 
-VOID CCanvasWindow::resetScrollPos()
+VOID CCanvasWindow::updateScrollPos(INT x, INT y)
 {
-    SetScrollPos(SB_HORZ, 0);
-    SetScrollPos(SB_VERT, 0);
+    SetScrollPos(SB_HORZ, x);
+    SetScrollPos(SB_VERT, y);
 }
 
 LRESULT CCanvasWindow::OnSize(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
     if (m_hWnd)
-        updateScrollInfo();
+        updateScrollRange();
 
     return 0;
 }
@@ -223,7 +278,7 @@ VOID CCanvasWindow::OnHVScroll(WPARAM wParam, INT fnBar)
     {
         case SB_THUMBTRACK:
         case SB_THUMBPOSITION:
-            si.nPos = HIWORD(wParam);
+            si.nPos = (SHORT)HIWORD(wParam);
             break;
         case SB_LINELEFT:
             si.nPos -= 5;
@@ -238,9 +293,9 @@ VOID CCanvasWindow::OnHVScroll(WPARAM wParam, INT fnBar)
             si.nPos += si.nPage;
             break;
     }
+    si.nPos = max(min(si.nPos, si.nMax), si.nMin);
     SetScrollInfo(fnBar, &si);
-    updateScrollInfo();
-    Invalidate(FALSE); // FIXME: Flicker
+    Invalidate();
 }
 
 LRESULT CCanvasWindow::OnHScroll(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
@@ -255,9 +310,20 @@ LRESULT CCanvasWindow::OnVScroll(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& 
     return 0;
 }
 
-LRESULT CCanvasWindow::OnLRButtonDown(BOOL bLeftButton, UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+LRESULT CCanvasWindow::OnButtonDown(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+    m_nMouseDownMsg = nMsg;
+    BOOL bLeftButton = (nMsg == WM_LBUTTONDOWN);
+
+    if (nMsg == WM_MBUTTONDOWN)
+    {
+        m_ptOrig = pt;
+        SetCapture();
+        ::SetCursor(::LoadCursor(g_hinstExe, MAKEINTRESOURCE(IDC_HANDDRAG)));
+        return 0;
+    }
 
     HITTEST hitSelection = SelectionHitTest(pt);
     if (hitSelection != HIT_NONE)
@@ -278,7 +344,7 @@ LRESULT CCanvasWindow::OnLRButtonDown(BOOL bLeftButton, UINT nMsg, WPARAM wParam
         }
         else
         {
-            canvasWindow.ClientToScreen(&pt);
+            ClientToScreen(&pt);
             mainWindow.TrackPopupMenu(pt, 0);
         }
         return 0;
@@ -292,13 +358,13 @@ LRESULT CCanvasWindow::OnLRButtonDown(BOOL bLeftButton, UINT nMsg, WPARAM wParam
             case TOOL_BEZIER:
             case TOOL_SHAPE:
                 toolsModel.OnCancelDraw();
-                canvasWindow.Invalidate();
+                Invalidate();
                 break;
 
             case TOOL_FREESEL:
             case TOOL_RECTSEL:
                 toolsModel.OnFinishDraw();
-                canvasWindow.Invalidate();
+                Invalidate();
                 break;
 
             default:
@@ -331,43 +397,35 @@ LRESULT CCanvasWindow::OnLRButtonDown(BOOL bLeftButton, UINT nMsg, WPARAM wParam
     return 0;
 }
 
-LRESULT CCanvasWindow::OnLButtonDown(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonDown(TRUE, nMsg, wParam, lParam, bHandled);
-}
-
-LRESULT CCanvasWindow::OnRButtonDown(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonDown(FALSE, nMsg, wParam, lParam, bHandled);
-}
-
-LRESULT CCanvasWindow::OnLRButtonDblClk(BOOL bLeftButton, UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+LRESULT CCanvasWindow::OnButtonDblClk(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     CanvasToImage(pt);
 
     m_drawing = FALSE;
-    ReleaseCapture();
+    ::ReleaseCapture();
+    m_nMouseDownMsg = 0;
 
-    toolsModel.OnButtonDown(bLeftButton, pt.x, pt.y, TRUE);
+    toolsModel.OnButtonDown(nMsg == WM_LBUTTONDBLCLK, pt.x, pt.y, TRUE);
     toolsModel.resetTool();
     Invalidate(FALSE);
     return 0;
 }
 
-LRESULT CCanvasWindow::OnLButtonDblClk(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonDblClk(TRUE, nMsg, wParam, lParam, bHandled);
-}
-
-LRESULT CCanvasWindow::OnRButtonDblClk(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonDblClk(FALSE, nMsg, wParam, lParam, bHandled);
-}
-
 LRESULT CCanvasWindow::OnMouseMove(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+    if (m_nMouseDownMsg == WM_MBUTTONDOWN)
+    {
+        INT x = GetScrollPos(SB_HORZ) - (pt.x - m_ptOrig.x);
+        INT y = GetScrollPos(SB_VERT) - (pt.y - m_ptOrig.y);
+        SendMessage(WM_HSCROLL, MAKEWPARAM(SB_THUMBPOSITION, x), 0);
+        SendMessage(WM_VSCROLL, MAKEWPARAM(SB_THUMBPOSITION, y), 0);
+        m_ptOrig = pt;
+        return 0;
+    }
+
     CanvasToImage(pt);
 
     if (toolsModel.GetActiveTool() == TOOL_ZOOM)
@@ -557,12 +615,15 @@ LRESULT CCanvasWindow::OnMouseMove(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL
     return 0;
 }
 
-LRESULT CCanvasWindow::OnLRButtonUp(BOOL bLeftButton, UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+LRESULT CCanvasWindow::OnButtonUp(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
 {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     CanvasToImage(pt);
 
     ::ReleaseCapture();
+
+    BOOL bLeftButton = (m_nMouseDownMsg == WM_LBUTTONDOWN);
+    m_nMouseDownMsg = 0;
 
     if (m_drawing)
     {
@@ -620,19 +681,9 @@ LRESULT CCanvasWindow::OnLRButtonUp(BOOL bLeftButton, UINT nMsg, WPARAM wParam, 
 
     m_hitCanvasSizeBox = HIT_NONE;
     toolsModel.resetTool(); // resets the point-buffer of the polygon and bezier functions
-    updateScrollInfo();
+    updateScrollRange();
     Invalidate(TRUE);
     return 0;
-}
-
-LRESULT CCanvasWindow::OnLButtonUp(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonUp(TRUE, nMsg, wParam, lParam, bHandled);
-}
-
-LRESULT CCanvasWindow::OnRButtonUp(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
-{
-    return OnLRButtonUp(FALSE, nMsg, wParam, lParam, bHandled);
 }
 
 LRESULT CCanvasWindow::OnSetCursor(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
@@ -640,6 +691,12 @@ LRESULT CCanvasWindow::OnSetCursor(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL
     if (CWaitCursor::IsWaiting())
     {
         bHandled = FALSE;
+        return 0;
+    }
+
+    if (m_nMouseDownMsg == WM_MBUTTONDOWN)
+    {
+        ::SetCursor(::LoadCursor(g_hinstExe, MAKEINTRESOURCE(IDC_HANDDRAG)));
         return 0;
     }
 
@@ -705,6 +762,7 @@ LRESULT CCanvasWindow::OnKeyDown(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL& 
     {
         // Cancel dragging
         ::ReleaseCapture();
+        m_nMouseDownMsg = 0;
         m_hitCanvasSizeBox = HIT_NONE;
         ::SetRectEmpty(&m_rcResizing);
         Invalidate(TRUE);
