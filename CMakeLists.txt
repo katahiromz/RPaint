@@ -54,8 +54,7 @@ add_executable(mspaint WIN32
     toolsettings.cpp
     toolsmodel.cpp
     winproc.cpp
-    rsrc.rc
-    compat/WinMain.c)
+    rsrc.rc)
 
 target_compile_definitions(mspaint PRIVATE
     __RPAINT__
@@ -103,6 +102,10 @@ target_compile_definitions(mspaint PRIVATE
     LANGUAGE_ZH_HK
     LANGUAGE_ZH_TW
     ${RATL_DEFINITIONS})
+
+if (NOT MSVC)
+    target_link_options(mspaint BEFORE PRIVATE -municode)
+endif()
 
 target_include_directories(mspaint PRIVATE ./ reactos/ ${RATL_INCLUDE_DIRS})
 target_link_libraries(mspaint PRIVATE user32 gdi32 comctl32 comdlg32 advapi32 shell32 msvcrt kernel32 ${RATL_LIBRARIES})
