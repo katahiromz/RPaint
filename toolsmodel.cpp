@@ -22,22 +22,20 @@ ToolsModel::ToolsModel()
     m_rubberRadius = 4;
     m_transpBg = FALSE;
     m_zoom = 1000;
-    ZeroMemory(&m_tools, sizeof(m_tools));
     m_pToolObject = GetOrCreateTool(m_activeTool);
 }
 
 ToolsModel::~ToolsModel()
 {
-    for (size_t i = 0; i < _countof(m_tools); ++i)
-        delete m_tools[i];
+    delete m_pToolObject;
+    m_pToolObject = NULL;
 }
 
 ToolBase *ToolsModel::GetOrCreateTool(TOOLTYPE nTool)
 {
-    if (!m_tools[nTool])
-        m_tools[nTool] = ToolBase::createToolObject(nTool);
-
-    return m_tools[nTool];
+    delete m_pToolObject;
+    m_pToolObject = ToolBase::createToolObject(nTool);
+    return m_pToolObject;
 }
 
 BOOL ToolsModel::IsSelection() const
@@ -145,7 +143,7 @@ TOOLTYPE ToolsModel::GetOldActiveTool() const
 
 void ToolsModel::SetActiveTool(TOOLTYPE nActiveTool)
 {
-    OnFinishDraw();
+    OnEndDraw(FALSE);
 
     selectionModel.Landing();
 
@@ -288,19 +286,11 @@ void ToolsModel::OnButtonUp(BOOL bLeftButton, LONG x, LONG y)
     m_pToolObject->endEvent();
 }
 
-void ToolsModel::OnCancelDraw()
+void ToolsModel::OnEndDraw(BOOL bCancel)
 {
-    ATLTRACE("ToolsModel::OnCancelDraw()\n");
+    ATLTRACE("ToolsModel::OnEndDraw(%d)\n", bCancel);
     m_pToolObject->beginEvent();
-    m_pToolObject->OnCancelDraw();
-    m_pToolObject->endEvent();
-}
-
-void ToolsModel::OnFinishDraw()
-{
-    ATLTRACE("ToolsModel::OnFinishDraw()\n");
-    m_pToolObject->beginEvent();
-    m_pToolObject->OnFinishDraw();
+    m_pToolObject->OnEndDraw(bCancel);
     m_pToolObject->endEvent();
 }
 
@@ -330,4 +320,76 @@ void ToolsModel::selectAll()
 void ToolsModel::SpecialTweak(BOOL bMinus)
 {
     m_pToolObject->OnSpecialTweak(bMinus);
+}
+
+void ToolsModel::DrawWithMouseTool(POINT pt, WPARAM wParam)
+{
+    LONG xRel = pt.x - g_ptStart.x, yRel = pt.y - g_ptStart.y;
+
+    switch (m_activeTool)
+    {
+        // freesel, rectsel and text tools always show numbers limited to fit into image area
+        case TOOL_FREESEL:
+        case TOOL_RECTSEL:
+        case TOOL_TEXT:
+            if (xRel < 0)
+                xRel = (pt.x < 0) ? -g_ptStart.x : xRel;
+            else if (pt.x > imageModel.GetWidth())
+                xRel = imageModel.GetWidth() - g_ptStart.x;
+            if (yRel < 0)
+                yRel = (pt.y < 0) ? -g_ptStart.y : yRel;
+            else if (pt.y > imageModel.GetHeight())
+                yRel = imageModel.GetHeight() - g_ptStart.y;
+            break;
+
+        // while drawing, update cursor coordinates only for tools 3, 7, 8, 9, 14
+        case TOOL_RUBBER:
+        case TOOL_PEN:
+        case TOOL_BRUSH:
+        case TOOL_AIRBRUSH:
+        case TOOL_SHAPE:
+        {
+            CStringW strCoord;
+            strCoord.Format(L"%ld, %ld", pt.x, pt.y);
+            ::SendMessageW(g_hStatusBar, SB_SETTEXT, 1, (LPARAM)(LPCWSTR)strCoord);
+            break;
+        }
+        default:
+            break;
+    }
+
+    // rectsel and shape tools always show non-negative numbers when drawing
+    if (m_activeTool == TOOL_RECTSEL || m_activeTool == TOOL_SHAPE)
+    {
+        xRel = labs(xRel);
+        yRel = labs(yRel);
+    }
+
+    if (wParam & MK_LBUTTON)
+    {
+        OnMouseMove(TRUE, pt.x, pt.y);
+        canvasWindow.Invalidate(FALSE);
+        if ((m_activeTool >= TOOL_TEXT) || IsSelection())
+        {
+            CStringW strSize;
+            if ((m_activeTool >= TOOL_LINE) && (GetAsyncKeyState(VK_SHIFT) < 0))
+                yRel = xRel;
+            strSize.Format(L"%ld x %ld", xRel, yRel);
+            ::SendMessageW(g_hStatusBar, SB_SETTEXT, 2, (LPARAM)(LPCWSTR)strSize);
+        }
+    }
+
+    if (wParam & MK_RBUTTON)
+    {
+        OnMouseMove(FALSE, pt.x, pt.y);
+        canvasWindow.Invalidate(FALSE);
+        if (m_activeTool >= TOOL_TEXT)
+        {
+            CStringW strSize;
+            if ((m_activeTool >= TOOL_LINE) && (GetAsyncKeyState(VK_SHIFT) < 0))
+                yRel = xRel;
+            strSize.Format(L"%ld x %ld", xRel, yRel);
+            ::SendMessageW(g_hStatusBar, SB_SETTEXT, 2, (LPARAM)(LPCWSTR)strSize);
+        }
+    }
 }

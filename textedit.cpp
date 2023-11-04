@@ -104,7 +104,7 @@ LRESULT CTextEditWindow::OnKeyDown(UINT nMsg, WPARAM wParam, LPARAM lParam, BOOL
 {
     if (wParam == VK_ESCAPE)
     {
-        toolsModel.OnCancelDraw();
+        toolsModel.OnEndDraw(TRUE);
         return 0;
     }
 
@@ -342,7 +342,7 @@ void CTextEditWindow::UpdateFont()
     lf.lfWeight = (registrySettings.Bold ? FW_BOLD : FW_NORMAL);
     lf.lfItalic = (BYTE)registrySettings.Italic;
     lf.lfUnderline = (BYTE)registrySettings.Underline;
-    lstrcpyn(lf.lfFaceName, registrySettings.strFontName, _countof(lf.lfFaceName));
+    StringCchCopyW(lf.lfFaceName, _countof(lf.lfFaceName), registrySettings.strFontName);
 
     HDC hdc = GetDC();
     if (hdc)

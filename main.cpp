@@ -7,6 +7,7 @@
 
 #include "precomp.h"
 
+#include <dlgs.h>
 #include <mapi.h>
 
 POINT g_ptStart, g_ptEnd;
@@ -21,6 +22,18 @@ BOOL g_showGrid = FALSE;
 CMainWindow mainWindow;
 
 /* FUNCTIONS ********************************************************/
+
+void ShowOutOfMemory(void)
+{
+    WCHAR szText[256];
+    ::FormatMessageW(FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_FROM_SYSTEM,
+                     NULL,
+                     ERROR_OUTOFMEMORY,
+                     0,
+                     szText, _countof(szText),
+                     NULL);
+    mainWindow.MessageBox(szText, NULL, MB_ICONERROR);
+}
 
 // get file name extension from filter string
 static BOOL
@@ -43,7 +56,7 @@ FileExtFromFilter(LPTSTR pExt, OPENFILENAME *pOFN)
             CharLower(pExt);
             return TRUE;
         }
-        pch += lstrlen(pch) + 1;
+        pch += wcslen(pch) + 1;
     }
     return FALSE;
 }
@@ -54,6 +67,7 @@ OFNHookProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     HWND hParent;
     OFNOTIFY *pon;
+    WCHAR Path[MAX_PATH];
     switch (uMsg)
     {
     case WM_NOTIFY:
@@ -61,11 +75,10 @@ OFNHookProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (pon->hdr.code == CDN_TYPECHANGE)
         {
             hParent = GetParent(hwnd);
-            TCHAR Path[MAX_PATH];
-            SendMessage(hParent, CDM_GETFILEPATH, _countof(Path), (LPARAM)Path);
-            FileExtFromFilter(PathFindExtension(Path), pon->lpOFN);
-            SendMessage(hParent, CDM_SETCONTROLTEXT, 0x047c, (LPARAM)PathFindFileName(Path));
-            lstrcpyn(pon->lpOFN->lpstrFile, Path, pon->lpOFN->nMaxFile);
+            SendMessageW(hParent, CDM_GETFILEPATH, _countof(Path), (LPARAM)Path);
+            FileExtFromFilter(PathFindExtensionW(Path), pon->lpOFN);
+            SendMessageW(hParent, CDM_SETCONTROLTEXT, cmb13, (LPARAM)PathFindFileNameW(Path));
+            StringCchCopyW(pon->lpOFN->lpstrFile, pon->lpOFN->nMaxFile, Path);
         }
         break;
     }
@@ -239,7 +252,7 @@ BOOL CMainWindow::GetSaveFileName(IN OUT LPTSTR pszFile, INT cchMaxFile)
         if (*pchDotExt == UNICODE_NULL)
         {
             // Choose PNG
-            wcscat(pszFile, L".png");
+            StringCchCatW(pszFile, cchMaxFile, L".png");
             for (INT i = 0; i < aguidFileTypesE.GetSize(); ++i)
             {
                 if (aguidFileTypesE[i] == Gdiplus::ImageFormatPNG)

@@ -19,8 +19,8 @@ public:
     HDC GetDC();
     BOOL CanUndo() const { return m_undoSteps > 0; }
     BOOL CanRedo() const { return m_redoSteps > 0; }
-    void PushImageForUndo(HBITMAP hbm = NULL);
-    void ResetToPrevious(void);
+    void PushImageForUndo();
+    void PushImageForUndo(HBITMAP hbm);
     void Undo(BOOL bClearRedo = FALSE);
     void Redo(void);
     void ClearHistory(void);

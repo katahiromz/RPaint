@@ -25,9 +25,19 @@
 #include <math.h>
 #include <shellapi.h>
 #include <htmlhelp.h>
+#include <strsafe.h>
 #include "atlimagedx.h"
 
 #include <debug.h>
+
+#ifdef __RPAINT__
+    #ifndef max
+        #define max(a, b) (((a) > (b)) ? (a) : (b))
+    #endif
+    #ifndef min
+        #define min(a, b) (((a) < (b)) ? (a) : (b))
+    #endif
+#endif
 
 #include "resource.h"
 #include "common.h"
@@ -50,14 +60,5 @@
 #include "dialogs.h"
 #include <ui/CWaitCursor.h>
 #include "globalvar.h"
-
-#ifdef __RPAINT__
-    #ifndef max
-        #define max(a, b) (((a) > (b)) ? (a) : (b))
-    #endif
-    #ifndef min
-        #define min(a, b) (((a) < (b)) ? (a) : (b))
-    #endif
-#endif
 
 #endif /* _MSPAINT_H */
