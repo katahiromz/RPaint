@@ -2,7 +2,7 @@
 
 cp -fr ../reactos/base/applications/mspaint/lang/ .
 cp -fr ../reactos/base/applications/mspaint/help/ .
-cp -fr ../reactos/base/applications/mspaint/icons/ .
+cp -fr ../reactos/base/applications/mspaint/img/ .
 cp -fr ../reactos/base/applications/mspaint/*.cpp .
 cp -fr ../reactos/base/applications/mspaint/*.h .
 cp -fr ../reactos/base/applications/mspaint/*.rc .
