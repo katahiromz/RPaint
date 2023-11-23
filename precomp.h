@@ -28,8 +28,6 @@
 #include <strsafe.h>
 #include "atlimagedx.h"
 
-#include <debug.h>
-
 #ifdef __RPAINT__
     #ifndef max
         #define max(a, b) (((a) > (b)) ? (a) : (b))
@@ -38,6 +36,8 @@
         #define min(a, b) (((a) < (b)) ? (a) : (b))
     #endif
 #endif
+
+#include <debug.h>
 
 #include "resource.h"
 #include "common.h"
@@ -56,7 +56,7 @@
 #include "toolbox.h"
 #include "toolsettings.h"
 #include "toolsmodel.h"
-#include "winproc.h"
+#include "main.h"
 #include "dialogs.h"
 #include <ui/CWaitCursor.h>
 #include "globalvar.h"

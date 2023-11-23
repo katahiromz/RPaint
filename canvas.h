@@ -49,10 +49,9 @@ public:
 
     VOID ImageToCanvas(POINT& pt);
     VOID ImageToCanvas(RECT& rc);
-    VOID CanvasToImage(POINT& pt, BOOL bZoomed = FALSE);
-    VOID CanvasToImage(RECT& rc, BOOL bZoomed = FALSE);
+    VOID CanvasToImage(POINT& pt);
+    VOID CanvasToImage(RECT& rc);
     VOID GetImageRect(RECT& rc);
-    VOID MoveSelection(INT xDelta, INT yDelta);
     VOID getNewZoomRect(CRect& rcView, INT newZoom, CPoint ptTarget);
     VOID zoomTo(INT newZoom, LONG left = 0, LONG top = 0);
 
@@ -68,7 +67,6 @@ protected:
     VOID DoDraw(HDC hDC, RECT& rcClient, RECT& rcPaint);
     VOID OnHVScroll(WPARAM wParam, INT fnBar);
 
-    HITTEST SelectionHitTest(POINT ptImage);
     VOID StartSelectionDrag(HITTEST hit, POINT ptImage);
     VOID SelectionDragging(POINT ptImage);
     VOID EndSelectionDrag(POINT ptImage);

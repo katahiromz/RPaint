@@ -53,7 +53,6 @@ add_executable(mspaint WIN32
     toolbox.cpp
     toolsettings.cpp
     toolsmodel.cpp
-    winproc.cpp
     rsrc.rc)
 
 target_compile_definitions(mspaint PRIVATE

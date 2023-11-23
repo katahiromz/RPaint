@@ -21,9 +21,9 @@ SelectionModel::SelectionModel()
     , m_bShow(FALSE)
     , m_bContentChanged(FALSE)
 {
-    ::SetRectEmpty(&m_rc);
-    ::SetRectEmpty(&m_rcOld);
-    m_ptHit.x = m_ptHit.y = -1;
+    m_rc.SetRectEmpty();
+    m_rcOld.SetRectEmpty();
+    m_ptHit = { -1, -1 };
 }
 
 SelectionModel::~SelectionModel()
@@ -71,17 +71,8 @@ void SelectionModel::ShiftPtStack(INT dx, INT dy)
 
 void SelectionModel::BuildMaskFromPtStack()
 {
-    CRect rc = { MAXLONG, MAXLONG, 0, 0 };
-    for (INT i = 0; i < m_iPtSP; ++i)
-    {
-        POINT& pt = m_ptStack[i];
-        rc.left = min(pt.x, rc.left);
-        rc.top = min(pt.y, rc.top);
-        rc.right = max(pt.x, rc.right);
-        rc.bottom = max(pt.y, rc.bottom);
-    }
-    rc.right += 1;
-    rc.bottom += 1;
+    CRect rc;
+    getBoundaryOfPtStack(rc, m_iPtSP, m_ptStack);
 
     m_rc = m_rcOld = rc;
 
@@ -106,7 +97,7 @@ void SelectionModel::BuildMaskFromPtStack()
 
 void SelectionModel::DrawBackgroundPoly(HDC hDCImage, COLORREF crBg)
 {
-    if (::IsRectEmpty(&m_rcOld))
+    if (m_rcOld.IsRectEmpty())
         return;
 
     HGDIOBJ hPenOld = ::SelectObject(hDCImage, ::GetStockObject(NULL_PEN));
@@ -118,7 +109,7 @@ void SelectionModel::DrawBackgroundPoly(HDC hDCImage, COLORREF crBg)
 
 void SelectionModel::DrawBackgroundRect(HDC hDCImage, COLORREF crBg)
 {
-    if (::IsRectEmpty(&m_rcOld))
+    if (m_rcOld.IsRectEmpty())
         return;
 
     Rect(hDCImage, m_rcOld.left, m_rcOld.top, m_rcOld.right, m_rcOld.bottom, crBg, crBg, 0, 1);
@@ -135,7 +126,7 @@ void SelectionModel::DrawBackground(HDC hDCImage)
 void SelectionModel::DrawSelection(HDC hDCImage, COLORREF crBg, BOOL bBgTransparent)
 {
     CRect rc = m_rc;
-    if (::IsRectEmpty(&rc))
+    if (rc.IsRectEmpty())
         return;
 
     BITMAP bm;
@@ -157,14 +148,10 @@ HBITMAP SelectionModel::GetSelectionContents()
     if (m_hbmColor)
         return CopyDIBImage(m_hbmColor, m_rc.Width(), m_rc.Height());
 
-    HDC hMemDC = ::CreateCompatibleDC(NULL);
-    HBITMAP hBitmap = CreateColorDIB(m_rc.Width(), m_rc.Height(), RGB(255, 255, 255));
-    HGDIOBJ hbmOld = ::SelectObject(hMemDC, hBitmap);
-    ::BitBlt(hMemDC, 0, 0, m_rc.Width(), m_rc.Height(), imageModel.GetDC(), m_rc.left, m_rc.top, SRCCOPY);
-    ::SelectObject(hMemDC, hbmOld);
-    ::DeleteDC(hMemDC);
-
-    return hBitmap;
+    HBITMAP hbmWhole = imageModel.LockBitmap();
+    HBITMAP hbmPart = getSubImage(hbmWhole, m_rc);
+    imageModel.UnlockBitmap(hbmWhole);
+    return hbmPart;
 }
 
 BOOL SelectionModel::IsLanded() const
@@ -174,7 +161,7 @@ BOOL SelectionModel::IsLanded() const
 
 BOOL SelectionModel::TakeOff()
 {
-    if (!IsLanded() || ::IsRectEmpty(&m_rc))
+    if (!IsLanded() || m_rc.IsRectEmpty())
         return FALSE;
 
     // The background color is needed for transparency of selection
@@ -217,7 +204,7 @@ void SelectionModel::Landing()
     m_bShow = FALSE;
 
     if (m_bContentChanged ||
-        (!::EqualRect(m_rc, m_rcOld) && !::IsRectEmpty(m_rc) && !::IsRectEmpty(m_rcOld)))
+        (!m_rc.EqualRect(m_rcOld) && !m_rc.IsRectEmpty() && !m_rcOld.IsRectEmpty()))
     {
         imageModel.PushImageForUndo();
 
@@ -423,10 +410,8 @@ void SelectionModel::DrawFramePoly(HDC hDCImage)
 
 void SelectionModel::SetRectFromPoints(const POINT& ptFrom, const POINT& ptTo)
 {
-    m_rc.left = min(ptFrom.x, ptTo.x);
-    m_rc.top = min(ptFrom.y, ptTo.y);
-    m_rc.right = max(ptFrom.x, ptTo.x);
-    m_rc.bottom = max(ptFrom.y, ptTo.y);
+    m_rc = CRect(ptFrom, ptTo);
+    m_rc.NormalizeRect();
 }
 
 void SelectionModel::Dragging(HITTEST hit, POINT pt)
@@ -465,7 +450,7 @@ void SelectionModel::Dragging(HITTEST hit, POINT pt)
             break;
         case HIT_BORDER:
         case HIT_INNER:
-            OffsetRect(&m_rc, pt.x - m_ptHit.x, pt.y - m_ptHit.y);
+            m_rc.OffsetRect(pt.x - m_ptHit.x, pt.y - m_ptHit.y);
             break;
     }
     m_ptHit = pt;
@@ -494,8 +479,8 @@ void SelectionModel::HideSelection()
     m_bShow = m_bContentChanged = FALSE;
     ClearColorImage();
     ClearMaskImage();
-    ::SetRectEmpty(&m_rc);
-    ::SetRectEmpty(&m_rcOld);
+    m_rc.SetRectEmpty();
+    m_rcOld.SetRectEmpty();
     imageModel.NotifyImageChanged();
 }
 
@@ -536,10 +521,41 @@ void SelectionModel::NotifyContentChanged()
 
 void SelectionModel::SwapWidthAndHeight()
 {
-    INT cx = m_rc.Width();
-    INT cy = m_rc.Height();
+    INT cx = m_rc.Width(), cy = m_rc.Height();
     m_rc.right = m_rc.left + cy;
     m_rc.bottom = m_rc.top + cx;
+}
+
+HITTEST SelectionModel::hitTest(POINT ptCanvas)
+{
+    if (!m_bShow)
+        return HIT_NONE;
+
+    CRect rcSelection = m_rc;
+    canvasWindow.ImageToCanvas(rcSelection);
+    rcSelection.InflateRect(GRIP_SIZE, GRIP_SIZE);
+    return getSizeBoxHitTest(ptCanvas, &rcSelection);
+}
+
+void SelectionModel::drawFrameOnCanvas(HDC hCanvasDC)
+{
+    if (!m_bShow)
+        return;
+
+    CRect rcSelection = m_rc;
+    canvasWindow.ImageToCanvas(rcSelection);
+    rcSelection.InflateRect(GRIP_SIZE, GRIP_SIZE);
+    drawSizeBoxes(hCanvasDC, &rcSelection, TRUE);
+}
+
+void SelectionModel::moveSelection(INT xDelta, INT yDelta)
+{
+    if (!m_bShow)
+        return;
+
+    TakeOff();
+    m_rc.OffsetRect(xDelta, yDelta);
+    canvasWindow.Invalidate();
 }
 
 void SelectionModel::StretchSelection(BOOL bShrink)

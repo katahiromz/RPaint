@@ -39,6 +39,9 @@ public:
     BOOL IsLanded() const;
     void HideSelection();
     void DeleteSelection();
+    HITTEST hitTest(POINT ptCanvas);
+    void drawFrameOnCanvas(HDC hCanvasDC);
+    void moveSelection(INT xDelta, INT yDelta);
 
     HBITMAP GetSelectionContents();
     void DrawFramePoly(HDC hDCImage);
