@@ -6,14 +6,14 @@
  *             Copyright 2021-2023 Katayama Hirofumi MZ <katayama.hirofumi.mz@gmail.com>
  */
 
-/* INCLUDES *********************************************************/
-
 #include "precomp.h"
 #include <atlalloc.h>
 
-SIZE_T ToolBase::s_pointSP = 0;
-static SIZE_T s_maxPointSP = 0;
-static CHeapPtr<POINT, CLocalAllocator> s_pointStack;
+static SIZE_T s_pointSP = 0;
+static CHeapPtr<POINT, CLocalAllocator> s_pointsAllocated;
+static POINT s_staticPointStack[512]; // 512 is enough
+static SIZE_T s_maxPointSP = _countof(s_staticPointStack);
+static LPPOINT s_pointStack = s_staticPointStack;
 static POINT g_ptStart, g_ptEnd;
 
 /* FUNCTIONS ********************************************************/
@@ -71,12 +71,49 @@ void getBoundaryOfPtStack(RECT& rcBoundary, INT cPoints, const POINT *pPoints)
     rcBoundary = rc;
 }
 
+void ShiftPtStack(INT dx, INT dy)
+{
+    for (SIZE_T i = 0; i < s_pointSP; ++i)
+    {
+        POINT& pt = s_pointStack[i];
+        pt.x += dx;
+        pt.y += dy;
+    }
+}
+
+void BuildMaskFromPtStack()
+{
+    CRect rc;
+    getBoundaryOfPtStack(rc, s_pointSP, s_pointStack);
+
+    ShiftPtStack(-rc.left, -rc.top);
+
+    HDC hdcMem = ::CreateCompatibleDC(NULL);
+    HBITMAP hbmMask = ::CreateBitmap(rc.Width(), rc.Height(), 1, 1, NULL);
+    HGDIOBJ hbmOld = ::SelectObject(hdcMem, hbmMask);
+    ::FillRect(hdcMem, &rc, (HBRUSH)::GetStockObject(BLACK_BRUSH));
+    HGDIOBJ hPenOld = ::SelectObject(hdcMem, GetStockObject(NULL_PEN));
+    HGDIOBJ hbrOld = ::SelectObject(hdcMem, GetStockObject(WHITE_BRUSH));
+    ::Polygon(hdcMem, s_pointStack, s_pointSP);
+    ::SelectObject(hdcMem, hbrOld);
+    ::SelectObject(hdcMem, hPenOld);
+    ::SelectObject(hdcMem, hbmOld);
+    ::DeleteDC(hdcMem);
+
+    selectionModel.setMask(rc, hbmMask);
+}
+
 void ToolBase::reset()
 {
+    if (s_pointStack != s_staticPointStack)
+    {
+        s_pointsAllocated.Free();
+        s_pointStack = s_staticPointStack;
+        s_maxPointSP = _countof(s_staticPointStack);
+    }
+
     s_pointSP = 0;
     g_ptEnd = g_ptStart = { -1, -1 };
-
-    selectionModel.ResetPtStack();
 
     if (selectionModel.m_bShow)
     {
@@ -105,16 +142,20 @@ void ToolBase::endEvent()
 
 void ToolBase::pushToPtStack(LONG x, LONG y)
 {
-    if (s_pointSP >= s_maxPointSP)
+    if (s_pointSP + 1 >= s_maxPointSP)
     {
         SIZE_T newMax = s_maxPointSP + 512;
         SIZE_T cbNew = newMax * sizeof(POINT);
-        if (!s_pointStack.ReallocateBytes(cbNew))
+        if (!s_pointsAllocated.ReallocateBytes(cbNew))
         {
             ATLTRACE("%d, %d, %d\n", (INT)s_pointSP, (INT)s_maxPointSP, (INT)cbNew);
             return;
         }
 
+        if (s_pointStack == s_staticPointStack)
+            CopyMemory(s_pointsAllocated, s_staticPointStack, s_pointSP * sizeof(POINT));
+
+        s_pointStack = s_pointsAllocated;
         s_maxPointSP = newMax;
     }
 
@@ -122,170 +163,6 @@ void ToolBase::pushToPtStack(LONG x, LONG y)
 }
 
 /* TOOLS ********************************************************/
-
-// TOOL_FREESEL
-struct FreeSelTool : ToolBase
-{
-    BOOL m_bLeftButton = FALSE;
-
-    void OnDrawOverlayOnImage(HDC hdc) override
-    {
-        if (!selectionModel.IsLanded())
-            selectionModel.DrawSelection(hdc, paletteModel.GetBgColor(), toolsModel.IsBackgroundTransparent());
-
-        if (canvasWindow.m_drawing)
-        {
-            selectionModel.DrawFramePoly(hdc);
-        }
-    }
-
-    void OnDrawOverlayOnCanvas(HDC hdc) override
-    {
-        selectionModel.drawFrameOnCanvas(hdc);
-    }
-
-    void OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick) override
-    {
-        selectionModel.Landing();
-        if (bLeftButton)
-        {
-            selectionModel.HideSelection();
-            selectionModel.ResetPtStack();
-            POINT pt = { x, y };
-            selectionModel.PushToPtStack(pt);
-        }
-        m_bLeftButton = bLeftButton;
-    }
-
-    BOOL OnMouseMove(BOOL bLeftButton, LONG& x, LONG& y) override
-    {
-        if (bLeftButton)
-        {
-            POINT pt = { x, y };
-            imageModel.Clamp(pt);
-            selectionModel.PushToPtStack(pt);
-            imageModel.NotifyImageChanged();
-        }
-        return TRUE;
-    }
-
-    BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) override
-    {
-        if (bLeftButton)
-        {
-            if (selectionModel.PtStackSize() > 2)
-            {
-                selectionModel.BuildMaskFromPtStack();
-                selectionModel.m_bShow = TRUE;
-            }
-            else
-            {
-                selectionModel.ResetPtStack();
-                selectionModel.m_bShow = FALSE;
-            }
-            imageModel.NotifyImageChanged();
-        }
-        else
-        {
-            POINT pt = { x, y };
-            canvasWindow.ClientToScreen(&pt);
-            mainWindow.TrackPopupMenu(pt, 0);
-        }
-        return TRUE;
-    }
-
-    void OnEndDraw(BOOL bCancel) override
-    {
-        if (bCancel)
-            selectionModel.HideSelection();
-        else
-            selectionModel.Landing();
-        ToolBase::OnEndDraw(bCancel);
-    }
-
-    void OnSpecialTweak(BOOL bMinus) override
-    {
-        selectionModel.StretchSelection(bMinus);
-    }
-};
-
-// TOOL_RECTSEL
-struct RectSelTool : ToolBase
-{
-    BOOL m_bLeftButton = FALSE;
-
-    void OnDrawOverlayOnImage(HDC hdc) override
-    {
-        if (!selectionModel.IsLanded())
-            selectionModel.DrawSelection(hdc, paletteModel.GetBgColor(), toolsModel.IsBackgroundTransparent());
-
-        if (canvasWindow.m_drawing)
-        {
-            CRect& rc = selectionModel.m_rc;
-            if (!rc.IsRectEmpty())
-                RectSel(hdc, rc.left, rc.top, rc.right, rc.bottom);
-        }
-    }
-
-    void OnDrawOverlayOnCanvas(HDC hdc) override
-    {
-        selectionModel.drawFrameOnCanvas(hdc);
-    }
-
-    void OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick) override
-    {
-        selectionModel.Landing();
-        if (bLeftButton)
-        {
-            selectionModel.HideSelection();
-        }
-        m_bLeftButton = bLeftButton;
-    }
-
-    BOOL OnMouseMove(BOOL bLeftButton, LONG& x, LONG& y) override
-    {
-        if (bLeftButton)
-        {
-            POINT pt = { x, y };
-            imageModel.Clamp(pt);
-            selectionModel.SetRectFromPoints(g_ptStart, pt);
-            imageModel.NotifyImageChanged();
-        }
-        return TRUE;
-    }
-
-    BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) override
-    {
-        POINT pt = { x, y };
-        if (bLeftButton)
-        {
-            imageModel.Clamp(pt);
-            selectionModel.SetRectFromPoints(g_ptStart, pt);
-            selectionModel.m_bShow = !selectionModel.m_rc.IsRectEmpty();
-            imageModel.NotifyImageChanged();
-        }
-        else
-        {
-            canvasWindow.ClientToScreen(&pt);
-            mainWindow.TrackPopupMenu(pt, 0);
-        }
-        return TRUE;
-    }
-
-    void OnEndDraw(BOOL bCancel) override
-    {
-        if (bCancel)
-            selectionModel.HideSelection();
-        else
-            selectionModel.Landing();
-        ToolBase::OnEndDraw(bCancel);
-    }
-
-    void OnSpecialTweak(BOOL bMinus) override
-    {
-        selectionModel.StretchSelection(bMinus);
-    }
-};
 
 struct TwoPointDrawTool : ToolBase
 {
@@ -489,6 +366,217 @@ struct SmoothDrawTool : ToolBase
         for (SIZE_T i = 1; i < s_pointSP; ++i)
         {
             OnDraw(hdc, m_bLeftButton, s_pointStack[i - 1], s_pointStack[i]);
+        }
+    }
+};
+
+struct SelectionBaseTool : ToolBase
+{
+    BOOL m_bLeftButton = FALSE;
+    BOOL m_bCtrlKey = FALSE;
+    BOOL m_bShiftKey = FALSE;
+    BOOL m_bDrawing = FALSE;
+    BOOL m_bNoDrawBack = FALSE;
+    HITTEST m_hitSelection = HIT_NONE;
+
+    BOOL isRectSelect() const
+    {
+        return (toolsModel.GetActiveTool() == TOOL_RECTSEL);
+    }
+
+    void OnDrawOverlayOnImage(HDC hdc) override
+    {
+        if (selectionModel.IsLanded() || !selectionModel.m_bShow)
+            return;
+
+        if (!m_bNoDrawBack)
+            selectionModel.DrawBackground(hdc, selectionModel.m_rgbBack);
+
+        selectionModel.DrawSelection(hdc, paletteModel.GetBgColor(), toolsModel.IsBackgroundTransparent());
+    }
+
+    void OnDrawOverlayOnCanvas(HDC hdc) override
+    {
+        if (m_bDrawing || selectionModel.m_bShow)
+            selectionModel.drawFrameOnCanvas(hdc);
+    }
+
+    void OnButtonDown(BOOL bLeftButton, LONG x, LONG y, BOOL bDoubleClick) override
+    {
+        m_bLeftButton = bLeftButton;
+        m_bCtrlKey = (::GetKeyState(VK_CONTROL) < 0);
+        m_bShiftKey = (::GetKeyState(VK_SHIFT) < 0);
+        m_bDrawing = FALSE;
+        m_hitSelection = HIT_NONE;
+
+        POINT pt = { x, y };
+        if (!m_bLeftButton) // Show context menu on Right-click
+        {
+            canvasWindow.ImageToCanvas(pt);
+            canvasWindow.ClientToScreen(&pt);
+            mainWindow.TrackPopupMenu(pt, 0);
+            return;
+        }
+
+        POINT ptCanvas = pt;
+        canvasWindow.ImageToCanvas(ptCanvas);
+        HITTEST hit = selectionModel.hitTest(ptCanvas);
+        if (hit != HIT_NONE) // Dragging of selection started?
+        {
+            if (m_bCtrlKey || m_bShiftKey)
+            {
+                imageModel.PushImageForUndo();
+                toolsModel.OnDrawOverlayOnImage(imageModel.GetDC());
+            }
+            m_hitSelection = hit;
+            selectionModel.m_ptHit = pt;
+            selectionModel.TakeOff();
+            m_bNoDrawBack |= (m_bCtrlKey || m_bShiftKey);
+            imageModel.NotifyImageChanged();
+            return;
+        }
+
+        selectionModel.Landing();
+        m_bDrawing = TRUE;
+
+        imageModel.Clamp(pt);
+        if (isRectSelect())
+        {
+            selectionModel.SetRectFromPoints(g_ptStart, pt);
+        }
+        else
+        {
+            s_pointSP = 0;
+            pushToPtStack(pt.x, pt.y);
+        }
+
+        imageModel.NotifyImageChanged();
+    }
+
+    BOOL OnMouseMove(BOOL bLeftButton, LONG& x, LONG& y) override
+    {
+        POINT pt = { x, y };
+
+        if (!m_bLeftButton)
+            return TRUE;
+
+        if (m_hitSelection != HIT_NONE) // Now dragging selection?
+        {
+            if (m_bShiftKey)
+                toolsModel.OnDrawOverlayOnImage(imageModel.GetDC());
+
+            selectionModel.Dragging(m_hitSelection, pt);
+            imageModel.NotifyImageChanged();
+            return TRUE;
+        }
+
+        if (isRectSelect() && ::GetKeyState(VK_SHIFT) < 0)
+            regularize(g_ptStart.x, g_ptStart.y, pt.x, pt.y);
+
+        imageModel.Clamp(pt);
+
+        if (isRectSelect())
+            selectionModel.SetRectFromPoints(g_ptStart, pt);
+        else
+            pushToPtStack(pt.x, pt.y);
+
+        imageModel.NotifyImageChanged();
+        return TRUE;
+    }
+
+    BOOL OnButtonUp(BOOL bLeftButton, LONG& x, LONG& y) override
+    {
+        POINT pt = { x, y };
+        m_bDrawing = FALSE;
+
+        if (!m_bLeftButton)
+            return TRUE;
+
+        if (m_hitSelection != HIT_NONE) // Dragging of selection ended?
+        {
+            if (m_bShiftKey)
+                toolsModel.OnDrawOverlayOnImage(imageModel.GetDC());
+
+            selectionModel.Dragging(m_hitSelection, pt);
+            m_hitSelection = HIT_NONE;
+            imageModel.NotifyImageChanged();
+            return TRUE;
+        }
+
+        if (isRectSelect() && ::GetKeyState(VK_SHIFT) < 0)
+            regularize(g_ptStart.x, g_ptStart.y, pt.x, pt.y);
+
+        imageModel.Clamp(pt);
+
+        if (isRectSelect())
+        {
+            selectionModel.SetRectFromPoints(g_ptStart, pt);
+            selectionModel.m_bShow = !selectionModel.m_rc.IsRectEmpty();
+        }
+        else
+        {
+            if (s_pointSP > 2)
+            {
+                BuildMaskFromPtStack();
+                selectionModel.m_bShow = TRUE;
+            }
+            else
+            {
+                s_pointSP = 0;
+                selectionModel.m_bShow = FALSE;
+            }
+        }
+
+        m_bNoDrawBack = FALSE;
+        imageModel.NotifyImageChanged();
+        return TRUE;
+    }
+
+    void OnEndDraw(BOOL bCancel) override
+    {
+        if (bCancel)
+            selectionModel.HideSelection();
+        else
+            selectionModel.Landing();
+
+        m_bDrawing = FALSE;
+        m_hitSelection = HIT_NONE;
+        ToolBase::OnEndDraw(bCancel);
+    }
+
+    void OnSpecialTweak(BOOL bMinus) override
+    {
+        selectionModel.StretchSelection(bMinus);
+    }
+};
+
+// TOOL_FREESEL
+struct FreeSelTool : SelectionBaseTool
+{
+    void OnDrawOverlayOnImage(HDC hdc) override
+    {
+        SelectionBaseTool::OnDrawOverlayOnImage(hdc);
+
+        if (!selectionModel.m_bShow && m_bDrawing)
+        {
+            /* Draw the freehand selection inverted/xored */
+            Poly(hdc, s_pointStack, s_pointSP, 0, 0, 2, 0, FALSE, TRUE);
+        }
+    }
+};
+
+// TOOL_RECTSEL
+struct RectSelTool : SelectionBaseTool
+{
+    void OnDrawOverlayOnImage(HDC hdc) override
+    {
+        SelectionBaseTool::OnDrawOverlayOnImage(hdc);
+
+        if (!selectionModel.m_bShow && m_bDrawing)
+        {
+            CRect& rc = selectionModel.m_rc;
+            if (!rc.IsRectEmpty())
+                RectSel(hdc, rc.left, rc.top, rc.right, rc.bottom);
         }
     }
 };
