@@ -1,14 +1,14 @@
-# ![](img/paint-32x32.png) Independent ReactOS Paint
+# ![](image/paint-32x32.png) Independent ReactOS Paint
 
 This is `"Independent ReactOS Paint"` from [ReactOS](https://reactos.org/).
 
-![(The screenshot)](img/screenshot.png)
+![(The screenshot)](image/screenshot.png)
 
 It's a free and open source software for Windows XP and later.
 
 <p align=center>
   <a href="https://reactos.org/">
-    <img alt="ReactOS" src="img/reactos-225x54.png">
+    <img alt="ReactOS" src="image/reactos-225x54.png">
   </a>
 </p>
 
